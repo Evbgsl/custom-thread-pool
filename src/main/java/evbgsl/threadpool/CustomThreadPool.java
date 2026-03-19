@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import evbgsl.threadpool.rejection.RejectionPolicy;
 
 /* Основной класс пула потоков:
 - единый способ создавать потоки
@@ -27,6 +28,8 @@ public class CustomThreadPool implements CustomExecutor {
 
     private volatile boolean shutdown;
 
+    private final RejectionPolicy rejectionPolicy;
+
     public CustomThreadPool(
             String poolName,
             int corePoolSize,
@@ -34,7 +37,8 @@ public class CustomThreadPool implements CustomExecutor {
             long keepAliveTime,
             TimeUnit timeUnit,
             int queueSize,
-            int minSpareThreads
+            int minSpareThreads,
+            RejectionPolicy rejectionPolicy
     ) {
         if (corePoolSize <= 0) {
             throw new IllegalArgumentException("corePoolSize must be > 0");
@@ -48,6 +52,9 @@ public class CustomThreadPool implements CustomExecutor {
         if (minSpareThreads < 0) {
             throw new IllegalArgumentException("minSpareThreads must be >= 0");
         }
+        if (rejectionPolicy == null) {
+            throw new IllegalArgumentException("rejectionPolicy must not be null");
+        }
 
         this.corePoolSize = corePoolSize;
         this.maxPoolSize = maxPoolSize;
@@ -55,6 +62,7 @@ public class CustomThreadPool implements CustomExecutor {
         this.timeUnit = timeUnit;
         this.queueSize = queueSize;
         this.minSpareThreads = minSpareThreads;
+        this.rejectionPolicy = rejectionPolicy;
 
         this.workers = new ArrayList<>();
         this.workerThreads = new ArrayList<>();
@@ -103,7 +111,8 @@ public class CustomThreadPool implements CustomExecutor {
         }
 
         if (shutdown) {
-            throw new RejectedExecutionException("Thread pool is shutdown");
+            rejectionPolicy.reject(command, this);
+            return;
         }
 
         ensureMinSpareThreads();
@@ -122,8 +131,8 @@ public class CustomThreadPool implements CustomExecutor {
                 }
             }
 
-            System.out.println("[Rejected] Task " + command + " was rejected due to overload!");
-            throw new RejectedExecutionException("All worker queues are full");
+            rejectionPolicy.reject(command, this);
+            return;
         }
 
         System.out.println("[Pool] Task accepted into queue #" + worker.getId() + ": " + command);
@@ -162,6 +171,16 @@ public class CustomThreadPool implements CustomExecutor {
         for (Worker worker : workers) {
             worker.clearQueue();
         }
+    }
+
+    @Override
+    public String toString() {
+        return "CustomThreadPool{" +
+                "corePoolSize=" + corePoolSize +
+                ", maxPoolSize=" + maxPoolSize +
+                ", workerCount=" + getWorkerCount() +
+                ", shutdown=" + shutdown +
+                '}';
     }
 
 
