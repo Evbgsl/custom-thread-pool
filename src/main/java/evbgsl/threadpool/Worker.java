@@ -9,12 +9,30 @@ import java.util.concurrent.BlockingQueue;
 */
 
 public class Worker implements Runnable {
+    private final int id;
     private final BlockingQueue<Runnable> taskQueue;
     private final CustomThreadPool pool;
 
-    public Worker(BlockingQueue<Runnable> taskQueue, CustomThreadPool pool) {
+    public Worker(int id, BlockingQueue<Runnable> taskQueue, CustomThreadPool pool) {
+        this.id = id;
         this.taskQueue = taskQueue;
         this.pool = pool;
+    }
+
+    public boolean offerTask(Runnable task) {
+        return taskQueue.offer(task);
+    }
+
+    public int getId() {
+        return id;
+    }
+
+    public int getQueueSize() {
+        return taskQueue.size();
+    }
+
+    public void clearQueue() {
+        taskQueue.clear();
     }
 
     @Override
