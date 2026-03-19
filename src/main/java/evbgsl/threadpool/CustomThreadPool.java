@@ -3,6 +3,7 @@ package evbgsl.threadpool;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /* Основной класс пула потоков:
 - единый способ создавать потоки
@@ -13,29 +14,40 @@ import java.util.concurrent.*;
 
 public class CustomThreadPool implements CustomExecutor {
     private final int corePoolSize;
-    private final BlockingQueue<Runnable> taskQueue;
-    private final List<Thread> workers;
+    private final List<Worker> workers;
+    private final List<Thread> workerThreads;
+    private final AtomicInteger nextWorker = new AtomicInteger(0);
     private final CustomThreadFactory threadFactory;
 
     private volatile boolean shutdown;
 
     public CustomThreadPool(String poolName, int corePoolSize, int queueSize) {
-        this.corePoolSize = corePoolSize;
-        this.taskQueue = new ArrayBlockingQueue<>(queueSize);
         this.workers = new ArrayList<>();
+        this.workerThreads = new ArrayList<>();
         this.threadFactory = new CustomThreadFactory(poolName);
         this.shutdown = false;
+        this.corePoolSize = corePoolSize;
 
-        initWorkers();
+        initWorkers(corePoolSize, queueSize);
     }
 
-    private void initWorkers() {
+    private void initWorkers(int corePoolSize, int queueSize) {
         for (int i = 0; i < corePoolSize; i++) {
-            Worker worker = new Worker(taskQueue, this);
+            BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(queueSize);
+
+            Worker worker = new Worker(i, queue, this);
             Thread thread = threadFactory.newThread(worker);
-            workers.add(thread);
+
+            workers.add(worker);
+            workerThreads.add(thread);
+
             thread.start();
         }
+    }
+
+    private Worker selectWorker() {
+        int index = Math.abs(nextWorker.getAndIncrement() % workers.size());
+        return workers.get(index);
     }
 
     @Override
@@ -48,13 +60,16 @@ public class CustomThreadPool implements CustomExecutor {
             throw new RejectedExecutionException("Thread pool is shutdown");
         }
 
-        boolean offered = taskQueue.offer(command);
-        if (!offered) {
-            System.out.println("[Rejected] Task " + command + " was rejected due to overload!");
-            throw new RejectedExecutionException("Task queue is full");
+        Worker worker = selectWorker();
+
+        boolean accepted = worker.offerTask(command);
+
+        if (!accepted) {
+            System.out.println("[Rejected] Task " + command + " was rejected!");
+            throw new RejectedExecutionException("Worker queue is full");
         }
 
-        System.out.println("[Pool] Task accepted into queue: " + command);
+        System.out.println("[Pool] Task accepted into queue #" + worker.getId() + ": " + command);
     }
 
     @Override
@@ -72,6 +87,10 @@ public class CustomThreadPool implements CustomExecutor {
     public void shutdown() {
         shutdown = true;
         System.out.println("[Pool] Shutdown initiated.");
+
+        for (Thread t : workerThreads) {
+            t.interrupt();
+        }
     }
 
     @Override
@@ -79,11 +98,13 @@ public class CustomThreadPool implements CustomExecutor {
         shutdown = true;
         System.out.println("[Pool] ShutdownNow initiated.");
 
-        for (Thread worker : workers) {
-            worker.interrupt();
+        for (Thread thread : workerThreads) {
+            thread.interrupt();
         }
 
-        taskQueue.clear();
+        for (Worker worker : workers) {
+            worker.clearQueue();
+        }
     }
 
     public boolean isShutdown() {
