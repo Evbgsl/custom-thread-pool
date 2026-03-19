@@ -1,47 +1,99 @@
 package evbgsl.threadpool;
-import java.util.concurrent.Future;
+
+import evbgsl.threadpool.rejection.AbortPolicy;
+import evbgsl.threadpool.rejection.CallerRunsPolicy;
+import evbgsl.threadpool.rejection.RejectionPolicy;
+
 import java.util.concurrent.TimeUnit;
 
 public class Main {
+
     public static void main(String[] args) throws Exception {
-        // CustomThreadPool pool = new CustomThreadPool("MyPool", 2, 5);
+        // runAbortPolicyDemo();
+        runCallerRunsPolicyDemo();
+    }
+
+    private static void runAbortPolicyDemo() throws Exception {
+        System.out.println("\n=== AbortPolicy demo ===");
+
+        runDemo(
+                new AbortPolicy(),
+                "AbortPool",
+                2,
+                4,
+                5,
+                TimeUnit.SECONDS,
+                1,
+                1,
+                12,
+                4000
+        );
+    }
+
+    private static void runCallerRunsPolicyDemo() throws Exception {
+        System.out.println("\n=== CallerRunsPolicy demo ===");
+
+        runDemo(
+                new CallerRunsPolicy(),
+                "CallerRunsPool",
+                2,
+                4,
+                5,
+                TimeUnit.SECONDS,
+                1,
+                1,
+                12,
+                4000
+        );
+    }
+
+    private static void runDemo(
+            RejectionPolicy rejectionPolicy,
+            String poolName,
+            int corePoolSize,
+            int maxPoolSize,
+            long keepAliveTime,
+            TimeUnit timeUnit,
+            int queueSize,
+            int minSpareThreads,
+            int taskCount,
+            long taskSleepMs
+    ) throws Exception {
 
         CustomThreadPool pool = new CustomThreadPool(
-                "MyPool",
-                2,                  // corePoolSize
-                4,                  // maxPoolSize
-                5,                  // keepAliveTime
-                TimeUnit.SECONDS,   // timeUnit
-                2,                  // queueSize (маленькая, чтобы увидеть scaling)
-                1                   // minSpareThreads
+                poolName,
+                corePoolSize,
+                maxPoolSize,
+                keepAliveTime,
+                timeUnit,
+                queueSize,
+                minSpareThreads,
+                rejectionPolicy
         );
 
-        // несколько задач
-        for (int i = 1; i <= 8; i++) {
-            int taskId = i;
-
-            pool.execute(() -> {
-                System.out.println("[Task-" + taskId + "] started by " + Thread.currentThread().getName());
-                try {
-                    Thread.sleep(3000);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                System.out.println("[Task-" + taskId + "] finished by " + Thread.currentThread().getName());
-            });
+        try {
+            for (int i = 1; i <= taskCount; i++) {
+                int taskId = i;
+                pool.execute(() -> {
+                    System.out.println("[Task-" + taskId + "] started by " + Thread.currentThread().getName());
+                    try {
+                        Thread.sleep(taskSleepMs);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        System.out.println("[Task-" + taskId + "] interrupted in " + Thread.currentThread().getName());
+                        return;
+                    }
+                    System.out.println("[Task-" + taskId + "] finished by " + Thread.currentThread().getName());
+                });
+            }
+        } catch (Exception e) {
+            System.out.println("[Main] Rejection caught: " + e.getMessage());
         }
 
-        // проверка Callable
-        Future<Integer> future = pool.submit(() -> {
-            Thread.sleep(1000);
-            return 42;
-        });
-
-        System.out.println("Future result = " + future.get());
-
-        // даем времени поработать
-        Thread.sleep(8000);
-
+        Thread.sleep(10000);
         pool.shutdown();
+
+        Thread.sleep(1000);
+        System.out.println("=== Demo finished ===");
     }
 }
